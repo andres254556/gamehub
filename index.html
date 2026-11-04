@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>THE HOUSE BELOW — 3D Horror</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;overflow:hidden;background:#030405;color:#eee;font-family:system-ui,Arial,sans-serif}
+canvas{display:block}#hud{position:fixed;inset:0;pointer-events:none;text-shadow:0 2px 8px #000}
+#top{position:absolute;top:18px;left:20px;font-size:13px;letter-spacing:2px;color:#c7c7c7}
+#objective{position:absolute;top:44px;left:20px;font-size:15px}
+#cross{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:22px;color:#ddd;opacity:.8}
+#hint{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);font-size:14px;color:#fff;background:#0009;padding:9px 15px;border:1px solid #ffffff25;border-radius:5px}
+#battery{position:absolute;right:20px;top:20px;font-size:13px;letter-spacing:1px}
+#overlay{position:fixed;inset:0;display:grid;place-items:center;background:radial-gradient(ellipse at center,#101316dd,#020304f7);z-index:5;text-align:center;padding:24px}
+.panel{max-width:580px}h1{font-size:clamp(38px,8vw,76px);letter-spacing:5px;margin:0 0 10px;color:#eee;text-shadow:0 0 25px #8d0000}p{line-height:1.6;color:#c3c3c3}
+button{pointer-events:auto;background:#790b12;color:white;border:1px solid #b94a50;padding:15px 30px;font-size:16px;letter-spacing:2px;font-weight:800;cursor:pointer;border-radius:3px;margin-top:14px}button:hover{background:#a20e19}
+.small{font-size:12px;color:#858585}#scare{position:fixed;inset:0;z-index:4;display:none;background:#000;align-items:center;justify-content:center;color:#f00;font-size:clamp(60px,16vw,180px);font-weight:1000;text-shadow:0 0 35px red;animation:shake .08s infinite}
+@keyframes shake{0%{transform:translate(3px,-2px)}50%{transform:translate(-3px,2px)}100%{transform:translate(2px,3px)}}
+#vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse,transparent 38%,#000b 100%);z-index:2}
+</style>
+</head>
+<body>
+<div id="overlay"><div class="panel"><h1 id="title">THE HOUSE<br>BELOW</h1><p id="desc">You woke up in a house that should have been empty.<br>Find all <b>3 keys</b>. Reach the basement exit.<br><b>Something is walking in the walls.</b></p><button id="start">ENTER THE HOUSE</button><p class="small">WASD move · Move mouse to look (click-and-drag if needed) · SHIFT sprint · F flashlight · E interact · ESC pause</p></div></div>
+<div id="hud"><div id="top">3:17 AM &nbsp; | &nbsp; NO SIGNAL</div><div id="objective">KEYS FOUND: 0 / 3</div><div id="cross">+</div><div id="battery">FLASHLIGHT: ON</div><div id="hint">Find the keys. Don't let it see you.</div></div>
+<div id="vignette"></div><div id="scare">IT FOUND YOU</div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x030506);scene.fog=new THREE.FogExp2(0x030506,.055);
+const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,.1,100);camera.rotation.order='YXZ';
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.85;document.body.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0x536070,0x090706,.24));
+const moon=new THREE.DirectionalLight(0x8191a8,.24);moon.position.set(-8,12,3);moon.castShadow=true;scene.add(moon);
+const flashlight=new THREE.SpotLight(0xffe6c4,85,19,Math.PI/7,.48,1.3);flashlight.position.set(0,0,0);flashlight.castShadow=true;camera.add(flashlight);const target=new THREE.Object3D();target.position.set(0,0,-1);camera.add(target);flashlight.target=target;scene.add(camera);
+const mat=(c,r=.9)=>new THREE.MeshStandardMaterial({color:c,roughness:r});
+const wallMat=mat(0x252523),floorMat=mat(0x292521),ceilingMat=mat(0x171819),wood=mat(0x30251e),dark=mat(0x08090b),metal=mat(0x62594b,.55);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(34,34),floorMat);floor.rotation.x=-Math.PI/2;floor.position.y=0;floor.receiveShadow=true;scene.add(floor);
+const ceiling=new THREE.Mesh(new THREE.PlaneGeometry(34,34),ceilingMat);ceiling.rotation.x=Math.PI/2;ceiling.position.y=3.4;scene.add(ceiling);
+const colliders=[];
+function box(x,y,z,w,h,d,m,collide=true){const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;scene.add(o);if(collide)colliders.push({x,z,w,d});return o}
+function wall(x,z,w,d){box(x,1.7,z,w,3.4,d,wallMat)}
+// Outer shell and a deliberately maze-like floor plan.
+wall(0,-16,32,.5);wall(0,16,32,.5);wall(-16,0,.5,32);wall(16,0,.5,32);
+wall(-8,-10,.35,11);wall(-3,-10,9,.35);wall(4,-10,.35,11);wall(9,-10,10,.35);
+wall(-10,-3,11,.35);wall(-2,-3,7,.35);wall(7,-3,10,.35);
+wall(-8,5,.35,12);wall(-3,4,9,.35);wall(4,5,.35,12);wall(10,5,9,.35);
+wall(-10,11,10,.35);wall(1,11,9,.35);
+wall(0,0,.35,4);wall(12,1,.35,6);wall(-12,1,.35,6);
+function lamp(x,z){const l=new THREE.PointLight(0xffb56b,1.6,7,2);l.position.set(x,2.8,z);scene.add(l);const bulb=new THREE.Mesh(new THREE.SphereGeometry(.09,8,8),new THREE.MeshBasicMaterial({color:0xffc77b}));bulb.position.copy(l.position);scene.add(bulb);return l}
+const lamps=[lamp(-11,-12),lamp(7,-12),lamp(-11,7),lamp(8,8),lamp(0,13)];
+// scattered furniture, crates and a bed-like shape
+box(-12,.55,-11,2.8,1.1,1.5,wood);box(10,.45,-13,2, .9,2.5,wood);box(-12,.6,9,3,1.2,2,wood);box(12,.5,10,2.5,1,2.5,wood);
+for(let i=0;i<18;i++){let x=(Math.random()-.5)*28,z=(Math.random()-.5)*28;if(Math.hypot(x,z)>4)box(x,.18,z,.35,.35,.35,dark,false)}
+// Exit door, marked by a weak red light
+const exit=box(0,1.25,15.55,2.4,2.5,.18,wood,false);const exitLamp=new THREE.PointLight(0x8d0909,2,7);exitLamp.position.set(0,2,13.7);scene.add(exitLamp);
+// Keys
+const keySpots=[new THREE.Vector3(-11,0,-12),new THREE.Vector3(11,0,7),new THREE.Vector3(-11,0,12)];
+const keys=[];const keyMat=new THREE.MeshStandardMaterial({color:0xe4b84e,metalness:.8,roughness:.25,emissive:0x553000});
+for(const p of keySpots){const g=new THREE.Group();const ring=new THREE.Mesh(new THREE.TorusGeometry(.19,.045,8,18),keyMat);ring.rotation.x=Math.PI/2;g.add(ring);const stem=new THREE.Mesh(new THREE.BoxGeometry(.08,.06,.42),keyMat);stem.position.z=.27;g.add(stem);const tooth=new THREE.Mesh(new THREE.BoxGeometry(.18,.06,.08),keyMat);tooth.position.set(.08,0,.42);g.add(tooth);g.position.set(p.x,.8,p.z);scene.add(g);keys.push({group:g,found:false})}
+// Monster: tall, gaunt, pale humanoid silhouette with glowing eyes
+const monster=new THREE.Group();const bodyMat=mat(0x171516,.98),skin=mat(0x5a5550),eyeMat=new THREE.MeshBasicMaterial({color:0xff1208});
+const torso=new THREE.Mesh(new THREE.CapsuleGeometry(.38,.95,5,8),bodyMat);torso.position.y=1.35;monster.add(torso);
+const head=new THREE.Mesh(new THREE.SphereGeometry(.34,12,10),skin);head.scale.set(.8,1.15,.8);head.position.set(0,2.25,0);monster.add(head);
+for(const x of [-.13,.13]){const eye=new THREE.Mesh(new THREE.SphereGeometry(.055,8,8),eyeMat);eye.position.set(x,2.3,-.27);monster.add(eye)}
+for(const x of [-.25,.25]){const leg=new THREE.Mesh(new THREE.CapsuleGeometry(.12,.85,4,6),bodyMat);leg.position.set(x,.45,0);monster.add(leg);const arm=new THREE.Mesh(new THREE.CapsuleGeometry(.1,.95,4,6),bodyMat);arm.position.set(x*1.8,1.35,-.02);arm.rotation.z=x<0?-.18:.18;monster.add(arm)}
+monster.position.set(13,0,-13);scene.add(monster);
+const player={x:0,z:13,yaw:Math.PI,pitch:0};camera.position.set(0,1.65,13);let started=false,paused=false,flash=true,won=false,dead=false,keysDown={},found=0,scareTimer=0,monsterSpeed=1.45,last=performance.now();
+const overlay=document.getElementById('overlay'),startBtn=document.getElementById('start'),hint=document.getElementById('hint');
+function begin(){started=true;paused=false;overlay.style.display='none';renderer.domElement.requestPointerLock?.();last=performance.now()}
+startBtn.addEventListener('click',begin);
+document.addEventListener('pointerlockchange',()=>{if(started&&!dead&&!won&&document.pointerLockElement!==renderer.domElement){paused=true;overlay.style.display='grid';document.getElementById('title').innerHTML='PAUSED';document.getElementById('desc').textContent='The house is still waiting.';startBtn.textContent='RESUME';}});
+startBtn.addEventListener('click',()=>{if(started){document.getElementById('title').innerHTML='THE HOUSE<br>BELOW';document.getElementById('desc').innerHTML='Find all <b>3 keys</b>. Reach the basement exit.<br><b>Something is walking in the walls.</b>';startBtn.textContent='ENTER THE HOUSE'}});
+// Mouse look: pointer-lock while playing, with click-and-drag as a fallback.
+let dragging=false, lastMouseX=0, lastMouseY=0;
+renderer.domElement.addEventListener('click',()=>{
+  if(started&&!paused&&!dead&&!won&&document.pointerLockElement!==renderer.domElement){
+    renderer.domElement.requestPointerLock?.();
+  }
+});
+renderer.domElement.addEventListener('mousedown',e=>{
+  if(started&&!paused&&!dead&&!won&&document.pointerLockElement!==renderer.domElement){
+    dragging=true; lastMouseX=e.clientX; lastMouseY=e.clientY;
+  }
+});
+document.addEventListener('mouseup',()=>dragging=false);
+document.addEventListener('mousemove',e=>{
+  if(!started||dead||won)return;
+  const locked=document.pointerLockElement===renderer.domElement;
+  if(locked || dragging){
+    const mx=locked?e.movementX:e.clientX-lastMouseX;
+    const my=locked?e.movementY:e.clientY-lastMouseY;
+    player.yaw-=mx*.0022;
+    player.pitch-=my*.0022;
+    player.pitch=Math.max(-1.35,Math.min(1.35,player.pitch));
+    lastMouseX=e.clientX; lastMouseY=e.clientY;
+  }
+});
+document.addEventListener('keydown',e=>{keysDown[e.code]=true;if(e.code==='KeyF'&&started){flash=!flash;flashlight.visible=flash;document.getElementById('battery').textContent='FLASHLIGHT: '+(flash?'ON':'OFF')}if(e.code==='KeyE')interact()});
+document.addEventListener('keyup',e=>keysDown[e.code]=false);
+function blocked(x,z){for(const c of colliders){if(Math.abs(x-c.x)<c.w/2+.35&&Math.abs(z-c.z)<c.d/2+.35)return true}return false}
+function interact(){if(!started||dead||won)return;for(const k of keys){if(!k.found&&camera.position.distanceTo(k.group.position)<2.4){k.found=true;scene.remove(k.group);found++;document.getElementById('objective').textContent=`KEYS FOUND: ${found} / 3`;hint.textContent=found===3?'The exit is unlocked. Get out!':'A key. It heard that.';return}}
+if(found===3&&camera.position.distanceTo(exit.position)<3){won=true;overlay.style.display='grid';document.getElementById('title').textContent='YOU ESCAPED';document.getElementById('desc').textContent='You made it outside. But something followed you.';startBtn.textContent='PLAY AGAIN';startBtn.onclick=()=>location.reload();document.exitPointerLock?.();return}
+hint.textContent='Nothing to use here.'}
+function endGame(){dead=true;document.exitPointerLock?.();document.getElementById('scare').style.display='flex';setTimeout(()=>{document.getElementById('scare').style.display='none';overlay.style.display='grid';document.getElementById('title').textContent='YOU WERE FOUND';document.getElementById('desc').textContent='The house has a new resident.';startBtn.textContent='TRY AGAIN';startBtn.onclick=()=>location.reload()},1100)}
+function animate(now){requestAnimationFrame(animate);const dt=Math.min((now-last)/1000,.04);last=now;
+if(started&&!paused&&!dead&&!won){const forward=(keysDown.KeyW?1:0)-(keysDown.KeyS?1:0),side=(keysDown.KeyD?1:0)-(keysDown.KeyA?1:0),speed=(keysDown.ShiftLeft||keysDown.ShiftRight)?5.2:3.1;const dx=(-Math.sin(player.yaw)*forward+Math.cos(player.yaw)*side)*speed*dt,dz=(-Math.cos(player.yaw)*forward-Math.sin(player.yaw)*side)*speed*dt;
+if(!blocked(camera.position.x+dx,camera.position.z))camera.position.x+=dx;if(!blocked(camera.position.x,camera.position.z+dz))camera.position.z+=dz;
+camera.rotation.set(player.pitch,player.yaw,0);
+keys.forEach(k=>{if(!k.found){k.group.rotation.y+=dt*1.1;k.group.position.y=.8+Math.sin(now*.003+k.group.position.x)*.12}});
+const mpos=monster.position,ppos=camera.position,dist=Math.hypot(ppos.x-mpos.x,ppos.z-mpos.z);const dir=new THREE.Vector3(ppos.x-mpos.x,0,ppos.z-mpos.z).normalize();const sp=monsterSpeed+(found*.24)+(dist<8?.45:0);let nx=mpos.x+dir.x*sp*dt,nz=mpos.z+dir.z*sp*dt;if(!blocked(nx,mpos.z))mpos.x=nx;if(!blocked(mpos.x,nz))mpos.z=nz;monster.lookAt(ppos.x,0,ppos.z);monster.position.y=Math.sin(now*.008)*.035;
+if(dist<1.35)endGame();if(dist<8){hint.textContent='RUN. IT IS RIGHT BEHIND YOU.';scene.fog.density=.075}else{scene.fog.density=.055}
+lamps.forEach((l,i)=>{l.intensity=(Math.sin(now*.004+i*4)>0.97?0.15:1.6)*(1+Math.sin(now*.002+i)*.12)});
+if(camera.position.z<14.5&&camera.position.z>12.5&&Math.abs(camera.position.x)<2&&found===3)hint.textContent='Press E to escape';
+}
+renderer.render(scene,camera)}
+requestAnimationFrame(animate);
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+</script>
+</body></html>
